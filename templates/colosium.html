@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Engine Colosseum</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #121212; color: white; margin-top: 50px; }
+        #board { width: 500px; margin-bottom: 20px; }
+        .controls { display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        .row { display: flex; gap: 10px; }
+        select, button { padding: 10px; font-size: 16px; cursor: pointer; border-radius: 5px; border: none; }
+        button.play { background-color: #4CAF50; color: white; font-weight: bold; }
+        button.play:hover { background-color: #45a049; }
+        button.stop { background-color: #f44336; color: white; font-weight: bold; }
+        button.stop:hover { background-color: #d32f2f; }
+        #status { margin-top: 15px; font-size: 18px; color: #ffeb3b; }
+    </style>
+</head>
+<body>
+
+    <h2>Engine Colosseum</h2>
+    <div id="board"></div>
+    
+    <div class="controls">
+        <div class="row">
+            <select id="white-bot">
+                {% for bot in bots %}
+                    <option value="{{ bot }}">White: {{ bot | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+            <select id="black-bot">
+                {% for bot in bots %}
+                    <option value="{{ bot }}">Black: {{ bot | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="row">
+            <button class="play" onclick="startBotMatch()">Start Bot vs Bot</button>
+            <button class="stop" onclick="stopBotMatch()">Halt Match</button>
+            <button onclick="resetGame()">Reset Board</button>
+        </div>
+    </div>
+    <div id="status">Ready.</div>
+
+<script>
+    var board = null;
+    var game = new Chess();
+    var $status = $('#status');
+    var matchActive = false;
+
+    function onDragStart (source, piece, position, orientation) {
+        // Block human interference if the bots are currently fighting
+        if (game.game_over() || matchActive) return false; 
+        if (piece.search(/^b/) !== -1) return false; // Human plays White
+    }
+
+    function onDrop (source, target) {
+        var move = game.move({ from: source, to: target, promotion: 'q' });
+        if (move === null) return 'snapback';
+        
+        checkGameOver();
+        if (!game.game_over()) {
+            $status.text("Bot is thinking...");
+            // If human moves, ask the Black bot to respond
+            window.setTimeout(() => requestBotMove(document.getElementById("black-bot").value), 250);
+        }
+    }
+
+    function onSnapEnd () {
+        board.position(game.fen());
+    }
+
+    function checkGameOver() {
+        if (game.in_checkmate()) {
+            $status.text("Game Over: Checkmate!");
+            matchActive = false;
+            return true;
+        } else if (game.in_draw()) {
+            $status.text("Game Over: Draw.");
+            matchActive = false;
+            return true;
+        }
+        return false;
+    }
+
+    function requestBotMove(botName) {
+        fetch('/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fen: game.fen(), bot: botName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.move) {
+                game.move(data.move, {sloppy: true});
+                board.position(game.fen());
+                
+                if (!checkGameOver() && matchActive) {
+                    // LOOP: Pass the turn to the other bot
+                    var nextBot = game.turn() === 'w' ? document.getElementById("white-bot").value : document.getElementById("black-bot").value;
+                    $status.text(nextBot + " is thinking...");
+                    window.setTimeout(() => requestBotMove(nextBot), 50); // 50ms visual delay so it doesn't instantly teleport
+                } else if (!matchActive && !game.game_over()) {
+                     $status.text("Your turn (White)");
+                }
+            } else {
+                $status.text("Engine Error: " + data.error);
+                matchActive = false;
+            }
+        });
+    }
+
+    function startBotMatch() {
+        if (game.game_over()) resetGame();
+        matchActive = true;
+        var currentBot = game.turn() === 'w' ? document.getElementById("white-bot").value : document.getElementById("black-bot").value;
+        $status.text(currentBot + " is thinking...");
+        requestBotMove(currentBot);
+    }
+
+    function stopBotMatch() {
+        matchActive = false;
+        $status.text("Match halted.");
+    }
+
+    function resetGame() {
+        game.reset();
+        board.start();
+        matchActive = false;
+        $status.text("Ready.");
+    }
+
+    var config = {
+        draggable: true,
+        position: 'start',
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd,
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    };
+    board = Chessboard('board', config);
+</script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chess Engine Arena</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #121212; color: white; margin-top: 50px; }
+        #board { width: 500px; margin-bottom: 20px; }
+        .controls { display: flex; gap: 10px; }
+        select, button { padding: 10px; font-size: 16px; cursor: pointer; border-radius: 5px; border: none; }
+        button { background-color: #4CAF50; color: white; font-weight: bold; }
+        button:hover { background-color: #45a049; }
+        #status { margin-top: 15px; font-size: 18px; color: #ffeb3b; }
+    </style>
+</head>
+<body>
+
+    <h2>Human vs Engine</h2>
+    <div id="board"></div>
+    
+    <div class="controls">
+        <select id="bot-selector">
+            {% for bot in bots %}
+                <option value="{{ bot }}">{{ bot | replace('_', ' ') | title }}</option>
+            {% endfor %}
+        </select>
+        <button onclick="resetGame()">Reset Board</button>
+    </div>
+    <div id="status">Your turn (White)</div>
+
+<script>
+    var board = null;
+    var game = new Chess();
+    var $status = $('#status');
+
+    function onDragStart (source, piece, position, orientation) {
+        if (game.game_over() || piece.search(/^b/) !== -1) return false; // Only allow grabbing White pieces
+    }
+
+    function onDrop (source, target) {
+
+        var piece = game.get(source);
+        var isPromotion = piece && piece.type === 'p' && (target.charAt(1) === '8' || target.charAt(1) === '1');
+        
+        // 2. Default to Queen, but ask the human if it's a promotion rank
+        var promoPiece = 'q';
+        if (isPromotion) {
+            var userInput = prompt("Promote to: \nq (Queen)\nr (Rook)\nb (Bishop)\nn (Knight)", "q");
+            // Validate input. If they type garbage, it defaults back to Queen.
+            if (userInput && ['q', 'r', 'b', 'n'].includes(userInput.toLowerCase())) {
+                promoPiece = userInput.toLowerCase();
+            }
+        }
+
+        // 3. Execute the move with the dynamically chosen piece
+        var move = game.move({
+            from: source,
+            to: target,
+            promotion: promoPiece
+        });
+
+        if (move === null) return 'snapback'; // Illegal move
+        
+        // --- THE GAME OVER GATE ---
+        // Check if the human just ended the game before asking the bot to think.
+        if (game.in_checkmate()) {
+            $status.text("You win by Checkmate!");
+            return;
+        } else if (game.in_draw()) {
+            $status.text("Game drawn.");
+            return;
+        }
+
+        $status.text("Bot is thinking...");
+        window.setTimeout(makeBotMove, 250);
+    }
+
+    function onSnapEnd () {
+        board.position(game.fen());
+    }
+
+    function makeBotMove () {
+        var botName = document.getElementById("bot-selector").value;
+        
+        fetch('/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fen: game.fen(), bot: botName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.move) {
+                game.move(data.move, {sloppy: true});
+                board.position(game.fen());
+                
+                if (game.in_checkmate()) $status.text("Bot wins by Checkmate!");
+                else if (game.in_draw()) $status.text("Game drawn.");
+                else $status.text("Your turn (White)");
+            } else {
+                $status.text("Engine Error: " + data.error);
+            }
+        });
+    }
+
+    function resetGame() {
+        game.reset();
+        board.start();
+        $status.text("Your turn (White)");
+    }
+
+    var config = {
+        draggable: true,
+        position: 'start',
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd,
+        // Tell the board to fetch images from the web instead of your local drive
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    };
+    board = Chessboard('board', config);
+</script>
+</body>
+</html>
