@@ -6,8 +6,8 @@ import math
 # ==========================================
 # CONFIGURATION
 # ==========================================
-BOT_A = "zest5"
-BOT_B = "zest4"
+BOT_A = "bot_greedy"
+BOT_B = "zest"
 GAMES = 200
 TIME_LIMIT = 2.0  # Strict per-move time limit (seconds)
 MAX_MOVES = 300   # Cap to prevent infinite games
